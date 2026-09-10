@@ -174,8 +174,8 @@ class EmulatorBridge {
 
     /**
      * Send a .8xp/.8xv file to the emulator.
-     * Injects into flash archive so TI-OS discovers it on boot.
-     * Must be called after loadRom() and before powerOn().
+     * Preserves the current archive and reboots to discover the imported entries.
+     * RAM and execution state are reset. Unsupported backends return -14.
      * @param fileBytes .8xp or .8xv file contents
      * @return Number of entries injected (>=0), or negative error code
      */

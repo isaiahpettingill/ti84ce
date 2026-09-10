@@ -91,6 +91,7 @@ if(BUILD_RUST_BACKEND)
 
     target_compile_definitions(emu_rust PRIVATE
         BACKEND_NAME="rust"
+        HAS_LIVE_IMPORT=1
     )
 
     target_link_libraries(emu_rust

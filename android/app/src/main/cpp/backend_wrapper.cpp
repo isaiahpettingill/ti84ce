@@ -20,6 +20,10 @@
 
 extern "C" {
 
+#ifdef HAS_LIVE_IMPORT
+int emu_send_file_live(Emu* emu, const uint8_t* data, size_t len);
+#endif
+
 // Return the backend name for identification
 const char* backend_get_name() {
     return BACKEND_NAME;
@@ -45,7 +49,12 @@ int backend_load_rom(Emu* emu, const uint8_t* data, size_t len) {
 }
 
 int backend_send_file(Emu* emu, const uint8_t* data, size_t len) {
-    return emu_send_file(emu, data, len);
+#ifdef HAS_LIVE_IMPORT
+    return emu_send_file_live(emu, data, len);
+#else
+    // Never fall back to reloading the original ROM on unsupported backends.
+    return -14;
+#endif
 }
 
 void backend_reset(Emu* emu) {

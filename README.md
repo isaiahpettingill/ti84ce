@@ -489,3 +489,18 @@ See LICENSE file.
 ## Legal Notice
 
 This emulator does not include any copyrighted ROM or OS images. You must provide your own legally obtained ROM file.
+
+## Android fork: incremental program imports
+
+The Android Rust backend imports `.8xp` and `.8xv` files into the current flash
+archive. Later imports keep previously archived programs and variables, including
+those restored from a saved state. A matching variable name and type is replaced.
+A file that fails to import leaves the archive unchanged; other selected files
+can still succeed. Import errors are displayed in the app.
+
+Imports reboot the calculator and clear RAM. Archive programs and variables you
+want to retain before importing; an in-progress calculation is not preserved.
+The Android CEmu backend reports that imports are unsupported instead of wiping
+the calculator by reloading the original ROM.
+
+Regression checks: `cargo test --manifest-path core/Cargo.toml --lib live_import`.

@@ -284,6 +284,7 @@ fun EmulatorScreen(
                     val result = emulator.loadRom(romBytes)
                     if (result == 0) {
                         romLoaded = true
+                        loadedPrograms = emptyList()
                         romName = uri.lastPathSegment ?: "ROM"
                         loadError = null
                         totalCyclesExecuted = 0L
@@ -317,21 +318,20 @@ fun EmulatorScreen(
     ) { uris: List<Uri> ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
 
-        val romBytes = currentRomBytes
-        if (romBytes == null) {
+        if (!romLoaded) {
             loadError = "Load a ROM first before sending program files"
             return@rememberLauncherForActivityResult
         }
 
         try {
             // Read all selected files
-            val fileEntries = uris.mapNotNull { uri ->
+            val fileEntries = uris.map { uri ->
                 val name = uri.lastPathSegment?.substringAfterLast('/') ?: "unknown"
                 val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 if (bytes != null) {
                     Log.i("EmulatorScreen", "Read program file: $name (${bytes.size} bytes)")
                     Pair(name, bytes)
-                } else null
+                } else error("Could not read $name")
             }
 
             if (fileEntries.isEmpty()) {
@@ -341,20 +341,6 @@ fun EmulatorScreen(
 
             // Stop emulation
             isRunning = false
-
-            // Destroy and recreate emulator
-            emulator.destroy()
-            if (!emulator.create()) {
-                loadError = "Failed to recreate emulator"
-                return@rememberLauncherForActivityResult
-            }
-
-            // Reload ROM
-            val result = emulator.loadRom(romBytes)
-            if (result != 0) {
-                loadError = "Failed to reload ROM: error $result"
-                return@rememberLauncherForActivityResult
-            }
 
             // Inject each program file
             var totalInjected = 0
@@ -367,16 +353,15 @@ fun EmulatorScreen(
                     successfulPrograms.add(name)
                     Log.i("EmulatorScreen", "Injected $name: $count entries")
                 } else {
-                    failedPrograms.add("$name ($count)")
+                    failedPrograms.add(if (count == -14) "$name: select the Rust backend for imports" else "$name ($count)")
                     Log.e("EmulatorScreen", "Failed to inject $name: error $count")
                 }
             }
 
             Log.i("EmulatorScreen", "Total entries injected: $totalInjected")
 
-            // Power on and start
-            emulator.powerOn()
-            loadedPrograms = successfulPrograms
+            // Each successful live import reboots while preserving the archive.
+            loadedPrograms = (loadedPrograms + successfulPrograms).distinct()
             loadError = if (failedPrograms.isEmpty()) {
                 null
             } else {
@@ -391,6 +376,8 @@ fun EmulatorScreen(
         } catch (e: Exception) {
             loadError = "Error sending programs: ${e.message}"
             Log.e("EmulatorScreen", "Error sending programs", e)
+        } finally {
+            isRunning = true
         }
     }
 
@@ -520,6 +507,15 @@ fun EmulatorScreen(
                 }
             },
             containerColor = Color(0xFF1A1A2E)
+        )
+    }
+
+    if (romLoaded && loadError != null) {
+        AlertDialog(
+            onDismissRequest = { loadError = null },
+            title = { Text("Import error") },
+            text = { Text(loadError ?: "") },
+            confirmButton = { TextButton(onClick = { loadError = null }) { Text("OK") } }
         )
     }
 
@@ -758,7 +754,9 @@ fun EmulatorView(
                 NavigationDrawerItem(
                     label = {
                         Column {
-                            Text("Send Programs (.8xp)", color = Color(0xFF4A9EFF))
+                            Text("Send Programs (.8xp/.8xv)", color = Color(0xFF4A9EFF))
+                            Text("Keeps archive; restarts and clears RAM. Archive your work first.",
+                                color = Color.LightGray, fontSize = 12.sp)
                             if (loadedPrograms.isNotEmpty()) {
                                 Text(
                                     "${loadedPrograms.size} files loaded",

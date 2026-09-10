@@ -71,6 +71,7 @@ enum FlashWriteState {
     SawA0,
 }
 
+#[derive(Clone)]
 pub struct Flash {
     /// Flash memory contents
     data: Vec<u8>,

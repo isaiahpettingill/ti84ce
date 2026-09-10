@@ -137,6 +137,23 @@ pub extern "C" fn emu_send_file(emu: *mut SyncEmu, data: *const u8, len: usize) 
     }
 }
 
+/// Import into the current archive, replacing matching variables, then reboot.
+/// Preserves flash; RAM and execution state are reset. Failed files leave flash intact.
+#[cfg_attr(not(feature = "ios_prefixed"), no_mangle)]
+#[cfg_attr(feature = "ios_prefixed", export_name = "rust_emu_send_file_live")]
+pub extern "C" fn emu_send_file_live(emu: *mut SyncEmu, data: *const u8, len: usize) -> i32 {
+    if emu.is_null() || data.is_null() || len == 0 {
+        return -1;
+    }
+    let sync_emu = unsafe { &*emu };
+    let file_data = unsafe { slice::from_raw_parts(data, len) };
+    let mut emu = sync_emu.inner.lock().unwrap();
+    match emu.send_file_live(file_data) {
+        Ok(count) => count as i32,
+        Err(code) => code,
+    }
+}
+
 /// Reset the emulator to initial state.
 #[cfg_attr(not(feature = "ios_prefixed"), no_mangle)]
 #[cfg_attr(feature = "ios_prefixed", export_name = "rust_emu_reset")]

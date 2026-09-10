@@ -753,6 +753,7 @@ impl Emu {
             -11 // Parse error
         })?;
 
+        let original_flash = self.bus.flash.clone();
         let count = ti_file.entries.len();
         for entry in &ti_file.entries {
             // Invalidate existing entry with same name/type
@@ -770,7 +771,10 @@ impl Emu {
             }
 
             // Inject new entry
-            self.inject_archive_entry(entry)?;
+            if let Err(code) = self.inject_archive_entry(entry) {
+                self.bus.flash = original_flash;
+                return Err(code);
+            }
         }
 
         // Soft reset (preserves flash) + power on
@@ -2963,6 +2967,61 @@ impl Default for Emu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn import_file(name: &[u8; 8], payload: &[u8]) -> Vec<u8> {
+        let mut file = b"**TI83F*".to_vec();
+        file.extend_from_slice(&[0x1A, 0x0A, 0]);
+        file.resize(53, 0);
+        file.extend_from_slice(&((17 + payload.len()) as u16).to_le_bytes());
+        file.extend_from_slice(&13u16.to_le_bytes());
+        file.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+        file.push(5);
+        file.extend_from_slice(name);
+        file.extend_from_slice(&[0, 0x80]);
+        file.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+        file.extend_from_slice(payload);
+        let checksum = file[55..].iter().fold(0u16, |sum, &b| sum.wrapping_add(b as u16));
+        file.extend_from_slice(&checksum.to_le_bytes());
+        file
+    }
+
+    #[test]
+    fn live_import_preserves_previous_programs_and_replaces_duplicates() {
+        let mut emu = Emu::new();
+        emu.load_rom(&[0, 0, 0x76]).unwrap();
+        let a = *b"FIRST\0\0\0";
+        let b = *b"SECOND\0\0";
+        assert_eq!(emu.send_file_live(&import_file(&a, &[1, 0, 0x3f])), Ok(1));
+        let first = emu.find_archive_entry_by_name(&a, 5, 5).unwrap();
+        let before = emu.bus.flash.data()[first as usize..first as usize + 18].to_vec();
+        assert_eq!(emu.send_file_live(&import_file(&b, &[1, 0, 0x3f])), Ok(1));
+        assert_eq!(&emu.bus.flash.data()[first as usize..first as usize + 18], before);
+        let second = emu.find_archive_entry_by_name(&b, 6, 5).unwrap();
+        assert_eq!(emu.send_file_live(&import_file(&a, &[1, 0, 0x00])), Ok(1));
+        assert_eq!(emu.bus.flash.peek(first), 0xF0);
+        assert_ne!(emu.find_archive_entry_by_name(&a, 5, 5), Some(first));
+        assert_eq!(emu.find_archive_entry_by_name(&b, 6, 5), Some(second));
+    }
+
+    #[test]
+    fn live_import_failure_leaves_archive_and_execution_unchanged() {
+        let mut emu = Emu::new();
+        emu.load_rom(&[0, 0, 0x76]).unwrap();
+        let name = *b"FIRST\0\0\0";
+        emu.send_file_live(&import_file(&name, &[1, 0, 0x3f])).unwrap();
+        let first = emu.find_archive_entry_by_name(&name, 5, 5).unwrap();
+        emu.bus.flash.write_direct(first + 18, 0);
+        for sector in (0x0D0000..0x3B0000).step_by(0x10000) {
+            emu.bus.flash.write_direct(sector, 0xFE);
+        }
+        let before = emu.bus.flash.data().to_vec();
+        let cycles = emu.total_cycles;
+        assert_eq!(emu.send_file_live(&import_file(&name, &[1, 0, 0])), Err(-12));
+        assert_eq!(emu.bus.flash.data(), before);
+        assert_eq!(emu.total_cycles, cycles);
+        assert_eq!(emu.send_file_live(b"invalid"), Err(-11));
+        assert_eq!(emu.bus.flash.data(), before);
+    }
 
     #[test]
     fn test_new_emu() {
