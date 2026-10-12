@@ -218,13 +218,27 @@ static int cemu_load_rom_from_memory(const uint8_t *rom_data, size_t rom_size) {
 
     gui_console_printf("[CEmu] Loading ROM Image from memory (%zu bytes)...\n", rom_size);
 
-    if (rom_size > SIZE_FLASH) {
+    if (rom_size > SIZE_FLASH_MAX) {
         gui_console_err_printf("[CEmu] Invalid ROM size\n");
         return -1;
     }
 
     asic_free();
     asic_init();
+
+    // CEmu now allocates flash in the ROM loader rather than asic_init().
+    uint32_t flash_size = SIZE_FLASH_MIN;
+    while (flash_size < rom_size) {
+        flash_size <<= 1;
+    }
+    mem.flash.size = flash_size;
+    mem.flash.block = malloc(flash_size);
+    if (!mem.flash.block) {
+        gui_console_err_printf("[CEmu] Error allocating ROM memory\\n");
+        asic_free();
+        return -1;
+    }
+    memset(mem.flash.block, 0xFF, flash_size);
 
     // Copy ROM data directly into flash memory
     memcpy(mem.flash.block, rom_data, rom_size);
@@ -233,7 +247,7 @@ static int cemu_load_rom_from_memory(const uint8_t *rom_data, size_t rom_size) {
     for (offset = 0x20000U; offset < 0x40000U; offset += 0x10000U) {
         outer = mem.flash.block;
 
-        if (cert_field_get(outer + offset, SIZE_FLASH - offset, &field_type, &outer, &outer_field_size)) break;
+        if (cert_field_get(outer + offset, mem.flash.size - offset, &field_type, &outer, &outer_field_size)) break;
         if (field_type != 0x800F) continue;
 
         if (cert_field_get(outer, outer_field_size, &field_type, &data, &data_field_size)) break;
