@@ -1,0 +1,58 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - 'core/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'core/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out CEmu backend
+        uses: actions/checkout@v4
+        with:
+          repository: CE-Programming/CEmu
+          ref: 7c4aa0b9e83434e2b4d31d5c21166e9954a7416e
+          path: cemu-ref
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android build tools
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;25.1.8937393" "cmake;3.22.1"
+      - name: Install Rust Android target
+        run: rustup target add aarch64-linux-android
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test and build release APK with both backends
+        working-directory: android
+        run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease -PabiFilters=arm64-v8a -PbuildRust=true -PbuildCemu=true
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ti84ce-android-arm64
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports
+          path: android/app/build/reports/tests/
+          if-no-files-found: ignore
