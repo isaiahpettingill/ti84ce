@@ -41,6 +41,20 @@ const GAP_WIDTH_SCALE = 0.16;
 export function DPad({ onKeyDown, onKeyUp }: DPadProps) {
   const [pressedDirection, setPressedDirection] =
     useState<DPadDirection | null>(null);
+  // Input must update synchronously: React state may still be stale on pointerup.
+  const pressedDirectionRef = useRef<DPadDirection | null>(null);
+  const activePointerRef = useRef<number | null>(null);
+  const onKeyUpRef = useRef(onKeyUp);
+  useEffect(() => { onKeyUpRef.current = onKeyUp; }, [onKeyUp]);
+  useEffect(() => () => {
+    const direction = pressedDirectionRef.current;
+    if (direction) {
+      const [row, col] = DIRECTION_COORDS[direction];
+      onKeyUpRef.current(row, col);
+    }
+    pressedDirectionRef.current = null;
+    activePointerRef.current = null;
+  }, []);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState(120);
@@ -230,59 +244,50 @@ export function DPad({ onKeyDown, onKeyUp }: DPadProps) {
     draw();
   }, [draw]);
 
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  const changeDirection = useCallback((direction: DPadDirection | null) => {
+    const previous = pressedDirectionRef.current;
+    if (direction === previous) return;
+    pressedDirectionRef.current = direction;
+    setPressedDirection(direction);
+    if (previous) {
+      const [row, col] = DIRECTION_COORDS[previous];
+      onKeyUp(row, col);
+    }
+    if (direction) {
+      const [row, col] = DIRECTION_COORDS[direction];
+      onKeyDown(row, col);
+    }
+  }, [onKeyDown, onKeyUp]);
 
-      const hit = hitTest(e.clientX, e.clientY);
-      if (hit) {
-        setPressedDirection(hit);
-        const coords = DIRECTION_COORDS[hit];
-        onKeyDown(coords[0], coords[1]);
-      }
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (activePointerRef.current !== null || e.button !== 0) return;
+      e.preventDefault();
+      activePointerRef.current = e.pointerId;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      changeDirection(hitTest(e.clientX, e.clientY));
     },
-    [hitTest, onKeyDown],
+    [hitTest, changeDirection],
   );
 
   const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (pressedDirection === null) return;
-
-      const hit = hitTest(e.clientX, e.clientY);
-      if (hit !== pressedDirection) {
-        if (pressedDirection) {
-          const coords = DIRECTION_COORDS[pressedDirection];
-          onKeyUp(coords[0], coords[1]);
-        }
-        if (hit) {
-          setPressedDirection(hit);
-          const coords = DIRECTION_COORDS[hit];
-          onKeyDown(coords[0], coords[1]);
-        } else {
-          setPressedDirection(null);
-        }
-      }
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (activePointerRef.current !== e.pointerId) return;
+      changeDirection(hitTest(e.clientX, e.clientY));
     },
-    [pressedDirection, hitTest, onKeyDown, onKeyUp],
+    [hitTest, changeDirection],
   );
 
   const handlePointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (pressedDirection) {
-        const coords = DIRECTION_COORDS[pressedDirection];
-        onKeyUp(coords[0], coords[1]);
-        setPressedDirection(null);
-      }
-      const target = e.currentTarget as HTMLElement;
-      if (
-        typeof target.hasPointerCapture === "function" &&
-        target.hasPointerCapture(e.pointerId)
-      ) {
-        target.releasePointerCapture(e.pointerId);
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (activePointerRef.current !== e.pointerId) return;
+      activePointerRef.current = null;
+      changeDirection(null);
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
       }
     },
-    [pressedDirection, onKeyUp],
+    [changeDirection],
   );
 
   const containerStyle: CSSProperties = {
@@ -305,11 +310,7 @@ export function DPad({ onKeyDown, onKeyUp }: DPadProps) {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      onPointerLeave={(e) => {
-        if (pressedDirection) {
-          handlePointerUp(e);
-        }
-      }}
+      onLostPointerCapture={handlePointerUp}
     >
       <canvas
         ref={canvasRef}

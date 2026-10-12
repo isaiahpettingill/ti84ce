@@ -2187,7 +2187,7 @@ private fun isNumberClusterKey(label: String): Boolean {
     return (label.length == 1 && label[0].isDigit()) || label == "." || label == "(−)"
 }
 
-private fun isPointInSegment(
+internal fun isPointInSegment(
     point: Offset,
     size: Size,
     startAngle: Float,
@@ -2209,13 +2209,15 @@ private fun isPointInSegment(
     }
     val angle = (atan2(dy, dx) * 180f / PI).toFloat()
     val normalized = (angle + 360f) % 360f
-    val end = (startAngle + sweepAngle) % 360f
+    // Right spans -45..45 degrees; normalize both ends before wrap detection.
+    val start = ((startAngle % 360f) + 360f) % 360f
+    val end = ((startAngle + sweepAngle) % 360f + 360f) % 360f
     return if (sweepAngle >= 360f) {
         true
-    } else if (startAngle <= end) {
-        normalized in startAngle..end
+    } else if (start <= end) {
+        normalized in start..end
     } else {
-        normalized >= startAngle || normalized <= end
+        normalized >= start || normalized <= end
     }
 }
 
